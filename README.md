@@ -1,8 +1,8 @@
 # InvoiceFlow
 
-InvoiceFlow is a real invoice and payment workflow API built as ProofCommit's progressive-migration reference product. The baseline is Spring Boot 2.7.18 on Java 17, using `javax.*` APIs and infrastructure versions appropriate to that generation.
+InvoiceFlow is an invoice and payment workflow with two Spring Boot services: a REST API and a notification consumer. The baseline is Spring Boot 2.7.18 on Java 17, using `javax.*` APIs and infrastructure versions appropriate to that generation.
 
-It creates draft invoices, issues them, records partial or full external payments, prevents overpayment, and publishes invoice events through a transactional outbox. It is an invoicing product, not a payment gateway: it records confirmed external payments and does not charge cards or move money.
+It creates draft invoices, issues them, records partial or full external payments, prevents overpayment, and publishes invoice events through a transactional outbox. The notification service consumes those events and delivers invoice and payment emails through SMTP. It is an invoicing product, not a payment gateway: it records confirmed external payments and does not charge cards or move money.
 
 ## Product behavior
 
@@ -16,6 +16,10 @@ It creates draft invoices, issues them, records partial or full external payment
 - Publish `invoice.issued` and `invoice.payment.recorded` events
 - Persist event intent in the same database transaction as business state
 - Confirm RabbitMQ publication before marking an outbox event published
+- Consume both event types from a durable notification queue
+- Send invoice and payment emails through SMTP
+- Deduplicate notifications by event ID and persist delivery status
+- Retry failed SMTP deliveries three times with exponential backoff
 - Protect API operations with an `X-API-Key` header
 - Expose OpenAPI documentation and health/metrics endpoints
 
@@ -25,8 +29,10 @@ It creates draft invoices, issues them, records partial or full external payment
 - Spring Boot 2.7.18
 - Spring MVC, Data JPA, Security, AMQP, Validation, and Actuator
 - PostgreSQL and Flyway
-- RabbitMQ publisher confirms
-- JUnit 5, MockMvc, and Testcontainers
+- RabbitMQ publisher confirms and consumer queues
+- SMTP email delivery with JavaMail
+- JUnit 5, MockMvc, Awaitility, and Testcontainers
+- Mailpit for local email inspection
 - Docker and Docker Compose
 
 ## Run with Docker Compose
@@ -35,12 +41,13 @@ It creates draft invoices, issues them, records partial or full external payment
 docker compose up --build
 ```
 
-The application listens on `http://localhost:8080`. RabbitMQ management is available on `http://localhost:15672` with the local development credentials `guest` / `guest`.
+The API listens on `http://localhost:8080`, and the notification service exposes health on `http://localhost:8081/actuator/health`. RabbitMQ management is available on `http://localhost:15672` with the local development credentials `guest` / `guest`. Mailpit's received-email interface is available on `http://localhost:8025`.
 
 Check application health:
 
 ```bash
 curl --fail http://localhost:8080/actuator/health
+curl --fail http://localhost:8081/actuator/health
 ```
 
 OpenAPI documentation:
@@ -69,6 +76,7 @@ CREATE_RESPONSE=$(curl --fail --silent --show-error \
   -H 'Content-Type: application/json' \
   -d '{
     "customerId": "7a4ce2c4-5a63-4a76-bf35-e1631c2641a8",
+    "customerEmail": "customer@example.com",
     "currency": "USD",
     "dueDate": "2099-12-31",
     "lines": [
@@ -135,6 +143,10 @@ Each JSON message contains `eventId`, `eventType`, `aggregateId`, `occurredAt`, 
 
 Publication is at least once. A failure after broker acceptance but before the outbox update can produce a duplicate, so consumers must deduplicate by event ID or business reference. The relay preserves event order during a single run and stops at the first failed publication.
 
+The notification service binds the durable `invoice.notifications` queue to both routing keys. It stores each event ID, recipient, delivery status, attempt count, and last error in the `notifications` PostgreSQL schema. A repeated event ID returns successfully without sending another email. SMTP failures are retried three times before the delivery is marked `FAILED`.
+
+Docker Compose uses Mailpit, so emails stay on your machine. For another SMTP server, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`, `SMTP_STARTTLS`, and optionally `NOTIFICATION_FROM` on the notification service.
+
 ## Build and test locally
 
 Requirements:
@@ -156,13 +168,17 @@ The build includes unit tests and real PostgreSQL/RabbitMQ integration tests cov
 - API validation, authentication, and not-found responses
 - Concurrent payments that cannot exceed the balance
 - Confirmed outbox publication and event envelopes
+- Real RabbitMQ consumption and SMTP delivery through Mailpit
+- Duplicate notification suppression
+- Retry exhaustion and persisted failed-delivery records
 
 Unit tests run through Surefire. `*IT` integration tests run through Failsafe during `verify`.
 
-Build the container directly:
+Build the service containers directly:
 
 ```bash
-docker build --tag invoiceflow:local .
+docker build --build-arg SERVICE=invoiceflow-api --tag invoiceflow-api:local .
+docker build --build-arg SERVICE=invoiceflow-notifications --tag invoiceflow-notifications:local .
 ```
 
 ## API errors

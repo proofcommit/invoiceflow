@@ -26,8 +26,17 @@ services:
       timeout: 5s
       retries: 20
 
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   invoiceflow:
-    build: .
+    build:
+      context: .
+      args:
+        SERVICE: invoiceflow-api
     environment:
       DATABASE_URL: jdbc:postgresql://postgres:5432/invoiceflow
       DATABASE_USERNAME: invoiceflow
@@ -41,6 +50,28 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+
+  notifications:
+    build:
+      context: .
+      args:
+        SERVICE: invoiceflow-notifications
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/invoiceflow
+      DATABASE_USERNAME: invoiceflow
+      DATABASE_PASSWORD: invoiceflow
+      RABBITMQ_HOST: rabbitmq
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
 
 volumes:
   invoiceflow-postgres:

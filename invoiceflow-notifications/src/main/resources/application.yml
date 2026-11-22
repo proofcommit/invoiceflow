@@ -1,0 +1,56 @@
+server:
+  port: ${PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: invoiceflow-notifications
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/invoiceflow}
+    username: ${DATABASE_USERNAME:invoiceflow}
+    password: ${DATABASE_PASSWORD:invoiceflow}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: notifications
+  flyway:
+    schemas: notifications
+    default-schema: notifications
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        default-requeue-rejected: false
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+
+invoiceflow:
+  outbox:
+    exchange: invoice.events
+  notifications:
+    queue: invoice.notifications
+    from: ${NOTIFICATION_FROM:invoices@proofcommit.com}
+    retry:
+      max-attempts: 3
+      initial-interval-ms: 1000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

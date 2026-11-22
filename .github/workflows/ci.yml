@@ -19,4 +19,5 @@ jobs:
           java-version: '17'
           cache: maven
       - run: mvn --batch-mode clean verify
-      - run: docker build --tag invoiceflow:ci .
+      - run: docker build --build-arg SERVICE=invoiceflow-api --tag invoiceflow-api:ci .
+      - run: docker build --build-arg SERVICE=invoiceflow-notifications --tag invoiceflow-notifications:ci .
