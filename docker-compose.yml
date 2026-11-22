@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_DB: invoiceflow
+      POSTGRES_USER: invoiceflow
+      POSTGRES_PASSWORD: invoiceflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - invoiceflow-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoiceflow -d invoiceflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  invoiceflow:
+    build: .
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/invoiceflow
+      DATABASE_USERNAME: invoiceflow
+      DATABASE_PASSWORD: invoiceflow
+      RABBITMQ_HOST: rabbitmq
+      INVOICEFLOW_API_KEY: dev-invoiceflow-key
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  invoiceflow-postgres:
